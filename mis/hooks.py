@@ -1,7 +1,7 @@
 app_name = "mis"
 app_title = "Mis"
-app_publisher = "	mantra"
-app_description = "MIS"
+app_publisher = "mantra"
+app_description = "mis"
 app_email = "shreyas.sojitra@mantratec.com"
 app_license = "mit"
 

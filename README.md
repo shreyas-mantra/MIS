@@ -1,6 +1,6 @@
 ### Mis
 
-MIS
+mis
 
 ### Installation
 

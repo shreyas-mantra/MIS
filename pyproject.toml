@@ -1,9 +1,9 @@
 [project]
 name = "mis"
 authors = [
-    { name = "	mantra", email = "shreyas.sojitra@mantratec.com"}
+    { name = "mantra", email = "shreyas.sojitra@mantratec.com"}
 ]
-description = "MIS"
+description = "mis"
 requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]
