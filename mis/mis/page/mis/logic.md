@@ -80,20 +80,12 @@ Calculated Particulars are evaluated dynamically using dependency logic:
 
 ## 🎨 Frontend Rendering Logic (`mis.js`)
 
-### 1. Matrix Header Hierarchy (Time Period at Top)
+### 1. Matrix Header Hierarchy & Sticky Section Pinned Headers
 The table matrix groups **Time Periods at the top level**, allowing all Business Units to be compared side-by-side:
 
-* **Monthly View (`Show Monthly` checked):**
-  $$\text{Month (Apr 2025)} \longrightarrow \text{Business Units (Mantra, Partner Bu, ..., Grand Total)} \longrightarrow [\text{Actual}, \text{Planned}, \text{Var (\%)}]$$
-
-* **Quarterly View (`Show Quarterly` checked):**
-  $$\text{Quarter (Q1)} \longrightarrow \text{Business Units (Mantra, Partner Bu, ..., Grand Total)} \longrightarrow [\text{Actual}, \text{Planned}, \text{Var (\%)}]$$
-
-* **Both View (`Show Monthly` & `Show Quarterly` checked):**
-  $$\text{Quarter (Q1)} \longrightarrow \text{Month (Apr, May, Jun, Total)} \longrightarrow \text{Business Units} \longrightarrow [\text{Actual}, \text{Planned}, \text{Var (\%)}]$$
-
-* **Yearly View (Both unchecked):**
-  $$\text{Business Units (Mantra, Partner Bu, ..., Grand Total)} \longrightarrow [\text{Actual}, \text{Planned}, \text{Var (\%)}]$$
+* **Sticky Top Headers (`position: sticky; top: 0`):** The entire table header (`thead`) stays pinned at the top when scrolling down vertically.
+* **Sticky Left Particulars Column (`position: sticky; left: 0`):** The Particulars column stays pinned on the left when scrolling horizontally.
+* **Horizontal Section Pinned Headers (`position: sticky; left: 188px`):** Top-level Year, Quarter, Month, and BU section header titles (`Apr 2025`, `Q1`, `Full Year`, etc.) remain dynamically pinned right beside the Particulars column as you scroll horizontally to the right, ensuring you never lose section context.
 
 ### 2. Excel Export Functionality
 * Exports dynamic matrix data as a formatted spreadsheet preserving headers, cell borders, currency formatting, and conditional color styling.
