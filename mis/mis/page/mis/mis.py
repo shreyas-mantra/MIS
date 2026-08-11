@@ -22,9 +22,11 @@ MANAGEMENT INFORMATION SYSTEM (MIS) - HARDCODED LOGIC & ASSUMPTIONS
    - Quarterly Planned Target = Monthly Planned Target * 3.
    - Full Year Planned Target = Yearly Target sum across mapped BUs.
 
-4. ACCOUNT DEDUPLICATION:
-   - Target accounts are expanded into unique leaf accounts to prevent double-counting
-     when both a parent group account and its child group accounts are mapped.
+4. HIGH-PERFORMANCE DIRECT GL AGGREGATION:
+   - Replaced redundant ERPNext `financial_statements.get_data` loop (which previously
+     scanned tabGL Entry 22+ times with FORCE INDEX) with 1 single indexed SQL query.
+   - Filters GL entries directly by (Company, Fiscal Year, Target Accounts, Cost Centers).
+   - Eliminates CPU spikes and database lock wait delays.
 
 5. COMPANY FALLBACK:
    - Primary: frappe.defaults.get_user_default("Company")
@@ -38,37 +40,19 @@ MANAGEMENT INFORMATION SYSTEM (MIS) - HARDCODED LOGIC & ASSUMPTIONS
 """
 
 import frappe
-import calendar
 from frappe.utils import flt, getdate, cint
 from collections import OrderedDict
 
 from erpnext.accounts.report.financial_statements import (
-	get_data,
 	get_period_list,
 )
 
-
-def _get_leaf_accounts(account_list):
-	"""Expand mapped group accounts into unique leaf accounts to prevent double counting."""
-	leaf_accounts = set()
-	for acc in account_list:
-		acc_info = frappe.db.get_value("Account", acc, ["is_group", "lft", "rgt"], as_dict=True)
-		if not acc_info:
-			continue
-		if acc_info.is_group:
-			children = frappe.db.get_all(
-				"Account",
-				filters={
-					"lft": (">=", acc_info.lft),
-					"rgt": ("<=", acc_info.rgt),
-					"is_group": 0
-				},
-				pluck="name"
-			)
-			leaf_accounts.update(children)
-		else:
-			leaf_accounts.add(acc)
-	return leaf_accounts
+CALCULATED_KEYS = {
+	"gross profit",
+	"gross profit margin (%)",
+	"ebitda",
+	"profit before tax",
+}
 
 
 def make_apv(act, plan):
@@ -105,7 +89,10 @@ def evaluate_calculated_particular(particular_name, bu_data_store, period_key="F
 
 	elif p_lower == "ebitda":
 		gp = get_p("Gross Profit")
-		opex_names = ["Employee Expense", "Software Expense", "Travel Expense", "Marketing Expense", "Other operating expense"]
+		opex_names = [
+			"Employee Expense", "Software Expense", "Travel Expense",
+			"Marketing Expense", "Other operating expense"
+		]
 		opex_act = sum(get_p(k)["actual"] for k in opex_names)
 		opex_plan = sum(get_p(k)["planned"] for k in opex_names)
 		return make_apv(gp["actual"] - opex_act, gp["planned"] - opex_plan)
@@ -133,13 +120,11 @@ def get_mis_data(fiscal_year, show_monthly=0, show_quarterly=0):
 	if not fy:
 		frappe.throw(f"Fiscal Year {fiscal_year} not found")
 
-	company = frappe.defaults.get_user_default("Company")
-	if not company:
-		company = frappe.db.get_single_value("Global Defaults", "default_company")
+	company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value("Global Defaults", "default_company")
 	if not company:
 		frappe.throw("Please set a default Company")
 
-	# Fetch all BUs (including group BUs if they have a cost center)
+	# Fetch all BUs ordered by bu_name asc
 	bus = frappe.db.get_all(
 		"Bu Master",
 		fields=["name", "bu_name", "cost_center"],
@@ -149,24 +134,53 @@ def get_mis_data(fiscal_year, show_monthly=0, show_quarterly=0):
 		return {"bus": [], "particulars": [], "data": {}}
 
 	bu_cc_map = {d.name: d.cost_center for d in bus if d.cost_center}
+	cc_bu_map = {d.cost_center: d.name for d in bus if d.cost_center}
 
-	# Fetch Target Ledger Maps
+	# ── Bulk fetch all accounts and pre-build leaf accounts map ──
+	accounts_raw = frappe.db.get_all(
+		"Account",
+		fields=["name", "is_group", "lft", "rgt", "root_type"]
+	)
+	accounts_map = {d.name: d for d in accounts_raw}
+	leaf_accounts_list = [d for d in accounts_raw if not d.is_group]
+
+	def expand_to_leaf_accounts(acc_list):
+		leaf_set = set()
+		for acc_name in acc_list:
+			acc_info = accounts_map.get(acc_name)
+			if not acc_info:
+				continue
+			if acc_info.is_group:
+				lft, rgt = acc_info.lft, acc_info.rgt
+				for child in leaf_accounts_list:
+					if lft <= child.lft and child.rgt <= rgt:
+						leaf_set.add(child.name)
+			else:
+				leaf_set.add(acc_info.name)
+		return leaf_set
+
+	# ── Bulk fetch Target Ledger Maps and Target Accounts ──
 	ledger_maps = frappe.db.get_all(
 		"Target Ledger Map", fields=["name", "target", "bu", "amount"]
 	)
 
+	ta_rows = frappe.db.get_all(
+		"Target Account",
+		filters={"parenttype": "Target Ledger Map"},
+		fields=["parent", "account"]
+	)
+	ta_grouped = {}
+	for ta in ta_rows:
+		ta_grouped.setdefault(ta.parent, []).append(ta.account)
+
 	target_map = {}
 	all_accounts = set()
 	for lm in ledger_maps:
-		accounts = frappe.db.get_all(
-			"Target Account",
-			filters={"parent": lm.name, "parenttype": "Target Ledger Map"},
-			fields=["account"], pluck="account"
-		)
-		# Expand group accounts to unique leaf accounts
-		leaf_accs = _get_leaf_accounts(accounts)
+		accs = ta_grouped.get(lm.name, [])
+		leaf_accs = expand_to_leaf_accounts(accs)
 		target_map[(lm.target, lm.bu)] = {
-			"target_amount": flt(lm.amount), "accounts": list(leaf_accs)
+			"target_amount": flt(lm.amount),
+			"accounts": list(leaf_accs)
 		}
 		all_accounts.update(leaf_accs)
 
@@ -174,15 +188,19 @@ def get_mis_data(fiscal_year, show_monthly=0, show_quarterly=0):
 		"Particulars", fields=["name"], order_by="creation asc", pluck="name"
 	)
 
+	bus_list = [{"name": d.name, "bu_name": d.bu_name} for d in bus]
+
 	if not all_accounts and not particulars:
 		return {
-			"bus": [{"name": d.name, "bu_name": d.bu_name} for d in bus],
-			"particulars": particulars, "data": {}, "view": "yearly"
+			"bus": bus_list,
+			"particulars": particulars,
+			"data": {},
+			"view": "yearly"
 		}
 
 	need_temporal = show_monthly or show_quarterly
 
-	# ── Build period list using ERPNext's engine ──
+	# ── Period list ──
 	period_list = get_period_list(
 		fiscal_year, fiscal_year,
 		fy.year_start_date, fy.year_end_date,
@@ -190,57 +208,61 @@ def get_mis_data(fiscal_year, show_monthly=0, show_quarterly=0):
 		company=company
 	)
 
-	# ── Fetch financial data per BU using ERPNext's get_data ──
-	bu_financial_data = {}
+	# ── ⚡ HIGH PERFORMANCE: Single Indexed SQL Query for GL Entries ──
+	# Replaces 22+ slow get_data calls and full table scans with 1 fast indexed query.
+	bu_gl_map = {}
 
-	for bu in bus:
-		cc = bu_cc_map.get(bu.name)
-		if not cc:
-			continue
+	if all_accounts and cc_bu_map:
+		valid_ccs = list(cc_bu_map.keys())
+		valid_accs = list(all_accounts)
 
-		filters = frappe._dict({
-			"company": company,
-			"period_start_date": fy.year_start_date,
-			"period_end_date": fy.year_end_date,
-			"filter_based_on": "Fiscal Year",
-			"periodicity": "Monthly" if need_temporal else "Yearly",
-			"cost_center": cc,
-			"accumulated_values": 0,
-		})
+		gl_entries = frappe.db.sql(
+			"""
+			SELECT 
+				account,
+				cost_center,
+				posting_date,
+				debit,
+				credit
+			FROM `tabGL Entry`
+			WHERE company = %s
+			  AND is_cancelled = 0
+			  AND posting_date >= %s
+			  AND posting_date <= %s
+			  AND account IN %s
+			  AND cost_center IN %s
+			""",
+			(company, fy.year_start_date, fy.year_end_date, tuple(valid_accs), tuple(valid_ccs)),
+			as_dict=True
+		)
 
-		income_list = get_data(company, "Income", "Credit", period_list, filters=filters) or []
-		expense_list = get_data(company, "Expense", "Debit", period_list, filters=filters) or []
+		# Map posting_date to period_key efficiently
+		for gle in gl_entries:
+			p_date = getdate(gle.posting_date)
+			matched_period_key = None
+			for p in period_list:
+				if getdate(p.from_date) <= p_date <= getdate(p.to_date):
+					matched_period_key = p.key
+					break
 
-		income_map = {}
-		for d in income_list:
-			acc_key = d.get("account") or d.get("account_id") or d.get("name")
-			if acc_key:
-				income_map[acc_key] = d
+			acc_info = accounts_map.get(gle.account)
+			root_type = acc_info.root_type if acc_info else ""
+			if root_type == "Income":
+				net_val = flt(gle.credit) - flt(gle.debit)
+			else:
+				net_val = flt(gle.debit) - flt(gle.credit)
 
-		expense_map = {}
-		for d in expense_list:
-			acc_key = d.get("account") or d.get("account_id") or d.get("name")
-			if acc_key:
-				expense_map[acc_key] = d
+			bu_name = cc_bu_map.get(gle.cost_center)
+			if bu_name:
+				if matched_period_key:
+					bu_gl_map[(bu_name, gle.account, matched_period_key)] = bu_gl_map.get((bu_name, gle.account, matched_period_key), 0.0) + net_val
+				bu_gl_map[(bu_name, gle.account, "total")] = bu_gl_map.get((bu_name, gle.account, "total"), 0.0) + net_val
 
-		bu_financial_data[bu.name] = {
-			"income": income_map,
-			"expense": expense_map,
-		}
-
-	# ── Map financial data to Particulars ──
 	def get_account_total(bu_name, account_name, period_key=None):
-		"""Get value for an account from a BU's financial data."""
-		fin = bu_financial_data.get(bu_name, {})
-		row = fin.get("income", {}).get(account_name) or fin.get("expense", {}).get(account_name)
-		if not row:
-			return 0
-		if period_key:
-			return flt(row.get(period_key, 0))
-		return flt(row.get("total", 0))
+		key = period_key if period_key else "total"
+		return bu_gl_map.get((bu_name, account_name, key), 0.0)
 
 	def get_particular_actual(particular, bu_name, period_key=None):
-		"""Sum actuals for all unique leaf accounts mapped to a particular for a given BU."""
 		tm = target_map.get((particular, bu_name))
 		if not tm:
 			return 0
@@ -249,13 +271,7 @@ def get_mis_data(fiscal_year, show_monthly=0, show_quarterly=0):
 			total += get_account_total(bu_name, acc, period_key)
 		return total
 
-	bus_list = [{"name": d.name, "bu_name": d.bu_name} for d in bus]
-
-	# ── Build response data ──
-	months_info = []
-	for p in period_list:
-		months_info.append({"key": p.key, "label": p.label})
-
+	months_info = [{"key": p.key, "label": p.label} for p in period_list]
 	quarters = []
 	for qi in range(0, len(months_info), 3):
 		q_months = months_info[qi:qi + 3]
@@ -267,16 +283,19 @@ def get_mis_data(fiscal_year, show_monthly=0, show_quarterly=0):
 
 	num_months = len(months_info) if months_info else 12
 
+	# ── Response building ──
 	if not need_temporal:
-		# Yearly view
+		# Yearly View
 		data = OrderedDict()
 		for particular in particulars:
 			bu_data = OrderedDict()
 			g_act, g_plan = 0, 0
+			is_calc = particular.lower().strip() in CALCULATED_KEYS
+
 			for bu in bus:
-				bu_store = {p_name: { "FY": data[p_name][bu.name] } for p_name in data if bu.name in data[p_name]}
-				calc_val = evaluate_calculated_particular(particular, bu_store, "FY")
-				if calc_val:
+				if is_calc:
+					bu_store = {p_name: {"FY": data[p_name][bu.name]} for p_name in data if bu.name in data[p_name]}
+					calc_val = evaluate_calculated_particular(particular, bu_store, "FY")
 					act, plan = calc_val["actual"], calc_val["planned"]
 				else:
 					act = get_particular_actual(particular, bu.name)
@@ -296,22 +315,18 @@ def get_mis_data(fiscal_year, show_monthly=0, show_quarterly=0):
 			"data": data
 		}
 
-	# Temporal view
+	# Temporal View (Monthly / Quarterly / Both)
 	data = OrderedDict()
+	all_keys = [m["key"] for m in months_info] + [q["key"] for q in quarters] + ["FY"]
+
 	for particular in particulars:
 		particular_bu_data = OrderedDict()
+		is_calc = particular.lower().strip() in CALCULATED_KEYS
 
 		for bu in bus:
 			bu_row = {}
-			# Reconstruct existing particulars for this BU to pass to calculated evaluator
-			bu_store = {p_name: data[p_name][bu.name] for p_name in data if bu.name in data[p_name]}
-
-			all_keys = [m["key"] for m in months_info] + [q["key"] for q in quarters] + ["FY"]
-
-			# Check if it's a calculated particular
-			sample_calc = evaluate_calculated_particular(particular, bu_store, "FY")
-
-			if sample_calc is not None:
+			if is_calc:
+				bu_store = {p_name: data[p_name][bu.name] for p_name in data if bu.name in data[p_name]}
 				for pk in all_keys:
 					bu_row[pk] = evaluate_calculated_particular(particular, bu_store, pk)
 			else:
@@ -337,8 +352,7 @@ def get_mis_data(fiscal_year, show_monthly=0, show_quarterly=0):
 
 		# Grand Total
 		gt_row = {}
-		all_period_keys = [m["key"] for m in months_info] + [q["key"] for q in quarters] + ["FY"]
-		for pk in all_period_keys:
+		for pk in all_keys:
 			gt_act = sum(particular_bu_data[b.name].get(pk, {}).get("actual", 0) for b in bus)
 			gt_plan = sum(particular_bu_data[b.name].get(pk, {}).get("planned", 0) for b in bus)
 			gt_row[pk] = make_apv(gt_act, gt_plan)
