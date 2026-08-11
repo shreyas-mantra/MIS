@@ -1,0 +1,279 @@
+/* ── MIS Page Styles ── */
+
+.mis-container {
+	padding: 0 4px;
+	position: relative;
+	z-index: 1;
+}
+
+.awesomplete > ul {
+	z-index: 1000 !important;
+}
+
+.mis-table-card {
+	background: var(--card-bg, #fff);
+	border-radius: 12px;
+	border: 1px solid var(--border-color, #e2e8f0);
+	box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+	overflow: hidden;
+	margin-bottom: 24px;
+}
+
+.mis-table-title {
+	padding: 16px 20px;
+	font-size: 15px;
+	font-weight: 700;
+	color: var(--text-color, #1a202c);
+	border-bottom: 1px solid var(--border-color, #e2e8f0);
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.mis-table-title .fy-badge {
+	font-size: 12px;
+	font-weight: 600;
+	padding: 3px 10px;
+	border-radius: 20px;
+	background: linear-gradient(135deg, #3b5998 0%, #4a69a5 100%);
+	color: #fff;
+	white-space: nowrap;
+}
+
+.mis-table-wrapper {
+	overflow-x: auto;
+	-webkit-overflow-scrolling: touch;
+}
+
+/* ── Table base ── */
+.mis-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 13px;
+	min-width: 600px;
+	table-layout: auto;
+}
+
+/* ── All header cells ── */
+.mis-table thead th {
+	background: linear-gradient(180deg, #3b5998 0%, #344e86 100%);
+	color: #ffffff;
+	font-weight: 600;
+	font-size: 12px;
+	padding: 8px 10px;
+	text-align: center;
+	border: 1px solid #2d4373;
+	white-space: nowrap;
+}
+
+/* Particulars header (sticky left) */
+.mis-table thead th.particulars-header {
+	text-align: left;
+	min-width: 160px;
+	position: sticky;
+	left: 0;
+	z-index: 10;
+	background: linear-gradient(180deg, #3b5998 0%, #344e86 100%);
+}
+
+/* BU group header */
+.mis-table thead th.bu-group-header {
+	letter-spacing: 0.3px;
+	font-size: 13px;
+}
+
+/* Sub-header (Actuals / Planned / Var) */
+.mis-table thead th.sub-header {
+	font-size: 10px;
+	font-weight: 500;
+	padding: 6px 8px;
+	background: linear-gradient(180deg, #4a69a5 0%, #3b5998 100%);
+	letter-spacing: 0.2px;
+	white-space: nowrap;
+}
+
+/* ── Month group header ── */
+.mis-table thead th.month-group-header {
+	font-size: 12px;
+	font-weight: 600;
+	background: linear-gradient(180deg, #3b5998 0%, #344e86 100%);
+}
+
+/* Month sub-header (used under month columns) */
+.mis-table thead th.month-sub {
+	background: linear-gradient(180deg, #4a69a5 0%, #3b5998 100%);
+}
+
+/* Month sub-headers inside quarterly groups */
+.mis-table thead th.quarter-month-sub {
+	font-size: 11px;
+	font-weight: 600;
+	background: linear-gradient(180deg, #4a6fa5 0%, #3d6090 100%);
+}
+
+/* ── Quarter headers ── */
+.mis-table thead th.quarter-header {
+	background: linear-gradient(180deg, #2c5282 0%, #2b4c7e 100%);
+	border-left: 2px solid #1e3a5f;
+	font-size: 13px;
+	letter-spacing: 0.5px;
+}
+
+.mis-table thead th.quarter-sub {
+	background: linear-gradient(180deg, #3a6298 0%, #2c5282 100%);
+}
+
+/* Quarter total label inside both-checked mode */
+.mis-table thead th.quarter-total-label {
+	background: linear-gradient(180deg, #2c5282 0%, #264a75 100%);
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.3px;
+}
+
+/* ── Grand total headers ── */
+.mis-table thead th.grand-total-header {
+	background: linear-gradient(180deg, #2c3e6b 0%, #243154 100%);
+	border-left: 2px solid #1a2740;
+	font-size: 13px;
+}
+
+.mis-table thead th.grand-total-sub {
+	background: linear-gradient(180deg, #374a7a 0%, #2c3e6b 100%);
+}
+
+/* BU separator */
+.mis-table thead th.bu-separator-header {
+	border-left: 2px solid #2d4373;
+}
+
+/* ── Body cells ── */
+.mis-table tbody td {
+	padding: 7px 10px;
+	border: 1px solid var(--border-color, #e8ecf1);
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	font-size: 12px;
+}
+
+/* Particulars cell (sticky left) */
+.mis-table tbody td.particular-cell {
+	text-align: left;
+	font-weight: 600;
+	font-size: 13px;
+	color: var(--text-color, #2d3748);
+	background: var(--card-bg, #fff);
+	position: sticky;
+	left: 0;
+	z-index: 5;
+	border-right: 2px solid var(--border-color, #d1d5db);
+	white-space: nowrap;
+}
+
+/* Monthly data cells */
+.mis-table tbody td.month-cell {
+	font-size: 12px;
+}
+
+/* Quarterly data cells */
+.mis-table tbody td.quarter-cell {
+	font-weight: 600;
+	background: rgba(44, 82, 130, 0.05);
+}
+
+/* Grand total data cells */
+.mis-table tbody td.grand-total-cell {
+	font-weight: 700;
+	background: rgba(59, 89, 152, 0.05);
+	border-left: 2px solid var(--border-color, #d1d5db);
+}
+
+/* BU separator body */
+.mis-table tbody td.bu-separator {
+	border-left: 2px solid var(--border-color, #d1d5db);
+}
+
+/* ── Alternating rows ── */
+.mis-table tbody tr:nth-child(even) {
+	background: var(--control-bg, #f7f8fa);
+}
+.mis-table tbody tr:nth-child(even) td.particular-cell {
+	background: var(--control-bg, #f7f8fa);
+}
+.mis-table tbody tr:nth-child(even) td.quarter-cell {
+	background: rgba(44, 82, 130, 0.08);
+}
+.mis-table tbody tr:nth-child(even) td.grand-total-cell {
+	background: rgba(59, 89, 152, 0.08);
+}
+.mis-table tbody tr:nth-child(odd) {
+	background: var(--card-bg, #fff);
+}
+
+/* Hover */
+.mis-table tbody tr:hover {
+	background: var(--highlight-color, #edf2f7) !important;
+}
+.mis-table tbody tr:hover td.particular-cell {
+	background: var(--highlight-color, #edf2f7) !important;
+}
+
+/* ── Variance colors ── */
+.variance-positive { color: #16a34a; font-weight: 600; }
+.variance-negative { color: #dc2626; font-weight: 600; }
+.variance-zero { color: var(--text-muted, #a0aec0); }
+
+/* ── No data ── */
+.mis-no-data {
+	text-align: center;
+	padding: 60px 20px;
+	color: var(--text-muted, #a0aec0);
+	font-size: 15px;
+}
+.mis-no-data .icon {
+	font-size: 40px;
+	margin-bottom: 12px;
+	opacity: 0.5;
+}
+
+/* ── Scrollbar ── */
+.mis-table-wrapper::-webkit-scrollbar { height: 8px; }
+.mis-table-wrapper::-webkit-scrollbar-track { background: var(--control-bg, #f1f1f1); border-radius: 4px; }
+.mis-table-wrapper::-webkit-scrollbar-thumb { background: var(--text-muted, #c1c1c1); border-radius: 4px; }
+.mis-table-wrapper::-webkit-scrollbar-thumb:hover { background: var(--text-light, #999); }
+
+/* ── Print Styles ── */
+@media print {
+	body * {
+		visibility: hidden;
+	}
+	.mis-container, .mis-container * {
+		visibility: visible;
+	}
+	.mis-container {
+		position: absolute;
+		left: 0;
+		top: 0;
+		width: 100%;
+	}
+	.page-head, .page-form, .navbar, .sidebar, .frappe-nav {
+		display: none !important;
+	}
+	.mis-table-card {
+		box-shadow: none !important;
+		border: 1px solid #000 !important;
+	}
+	.mis-table thead th {
+		background-color: #3b5998 !important;
+		color: #ffffff !important;
+		-webkit-print-color-adjust: exact;
+		print-color-adjust: exact;
+	}
+	.mis-table tbody td.particular-cell,
+	.mis-table thead th.particulars-header {
+		position: static !important;
+	}
+}
+
+
