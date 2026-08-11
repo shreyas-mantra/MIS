@@ -11,20 +11,16 @@ MANAGEMENT INFORMATION SYSTEM (MIS) - HARDCODED LOGIC & ASSUMPTIONS
      * "Profit Before Tax" = EBITDA - (Depreciation + Interest)
 
 2. STANDARD PARTICULAR LOGIC:
-   - Direct ledger-mapped particulars (e.g. Employee Expense, Software Expense,
-     Travel Expense, Marketing Expense, Other operating expense, Capex, Bad debt,
-     Inventory Write off, Receivable Cost) fetch GL balances directly based on
+   - Direct ledger-mapped particulars fetch GL balances directly based on
      the Target Ledger Map configuration.
 
-3. TARGET DISBURSAL & PERIOD CALCULATIONS:
-   - Amounts defined in `Target Ledger Map` (`lm.amount`) are treated as ANNUAL targets.
-   - Monthly Planned Target = Yearly Target / Total Months in FY (usually 12).
-   - Quarterly Planned Target = Monthly Planned Target * 3.
-   - Full Year Planned Target = Yearly Target sum across mapped BUs.
+3. TARGET DISBURSAL BY FISCAL YEAR & MONTHLY TARGETS TABLE:
+   - Targets are defined per Fiscal Year in `Target Ledger Map` via the `Targets` child table.
+   - Monthly Planned Target = Exact amount configured for that month (Apr-Mar) in child table.
+   - Quarterly Planned Target = Sum of monthly planned targets for that quarter's 3 months.
+   - Full Year Planned Target = Sum of all 12 monthly targets in FY.
 
 4. HIGH-PERFORMANCE DIRECT GL AGGREGATION:
-   - Replaced redundant ERPNext `financial_statements.get_data` loop (which previously
-     scanned tabGL Entry 22+ times with FORCE INDEX) with 1 single indexed SQL query.
    - Filters GL entries directly by (Company, Fiscal Year, Target Accounts, Cost Centers).
    - Eliminates CPU spikes and database lock wait delays.
 
@@ -34,8 +30,7 @@ MANAGEMENT INFORMATION SYSTEM (MIS) - HARDCODED LOGIC & ASSUMPTIONS
 
 6. BU SELECTION & AGGREGATION:
    - Queries `Bu Master` documents that have a valid `cost_center` assigned.
-   - All temporal metrics (Monthly, Quarterly, Both) are computed BU-wise as well as
-     aggregated under a "Grand Total" column.
+   - Computes BU-wise performance as well as an aggregated "Grand Total" column.
 ================================================================================
 """
 
@@ -159,27 +154,51 @@ def get_mis_data(fiscal_year, show_monthly=0, show_quarterly=0):
 				leaf_set.add(acc_info.name)
 		return leaf_set
 
-	# ── Bulk fetch Target Ledger Maps and Target Accounts ──
-	ledger_maps = frappe.db.get_all(
-		"Target Ledger Map", fields=["name", "target", "bu", "amount"]
+	# ── Bulk fetch Target Ledger Maps filtered by Fiscal Year (with fallback) ──
+	ledger_maps = frappe.db.sql(
+		"""
+		SELECT name, target, bu, fiscal_year
+		FROM `tabTarget Ledger Map`
+		WHERE fiscal_year = %s OR ifnull(fiscal_year, '') = ''
+		""",
+		(fiscal_year,),
+		as_dict=True
 	)
 
-	ta_rows = frappe.db.get_all(
-		"Target Account",
-		filters={"parenttype": "Target Ledger Map"},
-		fields=["parent", "account"]
-	)
+	lm_names = [lm.name for lm in ledger_maps] if ledger_maps else []
 	ta_grouped = {}
-	for ta in ta_rows:
-		ta_grouped.setdefault(ta.parent, []).append(ta.account)
+	monthly_targets_grouped = {}
+
+	if lm_names:
+		# Bulk fetch Target Account links for matched parent maps
+		ta_rows = frappe.db.get_all(
+			"Target Account",
+			filters={"parenttype": "Target Ledger Map", "parent": ["in", lm_names]},
+			fields=["parent", "account"]
+		)
+		for ta in ta_rows:
+			ta_grouped.setdefault(ta.parent, []).append(ta.account)
+
+		# Bulk fetch Targets monthly child table for matched parent maps
+		monthly_targets_raw = frappe.db.get_all(
+			"Targets",
+			filters={"parenttype": "Target Ledger Map", "parent": ["in", lm_names]},
+			fields=["parent", "month", "amount"]
+		)
+		for mt in monthly_targets_raw:
+			monthly_targets_grouped.setdefault(mt.parent, {})[mt.month] = flt(mt.amount)
 
 	target_map = {}
 	all_accounts = set()
 	for lm in ledger_maps:
 		accs = ta_grouped.get(lm.name, [])
 		leaf_accs = expand_to_leaf_accounts(accs)
+		m_amounts = monthly_targets_grouped.get(lm.name, {})
+		yearly_target = sum(m_amounts.values())
+
 		target_map[(lm.target, lm.bu)] = {
-			"target_amount": flt(lm.amount),
+			"yearly_target": yearly_target,
+			"monthly_targets": m_amounts,
 			"accounts": list(leaf_accs)
 		}
 		all_accounts.update(leaf_accs)
@@ -208,8 +227,7 @@ def get_mis_data(fiscal_year, show_monthly=0, show_quarterly=0):
 		company=company
 	)
 
-	# ── ⚡ HIGH PERFORMANCE: Single Indexed SQL Query for GL Entries ──
-	# Replaces 22+ slow get_data calls and full table scans with 1 fast indexed query.
+	# ── High Performance GL Entry Query ──
 	bu_gl_map = {}
 
 	if all_accounts and cc_bu_map:
@@ -236,7 +254,6 @@ def get_mis_data(fiscal_year, show_monthly=0, show_quarterly=0):
 			as_dict=True
 		)
 
-		# Map posting_date to period_key efficiently
 		for gle in gl_entries:
 			p_date = getdate(gle.posting_date)
 			matched_period_key = None
@@ -281,7 +298,14 @@ def get_mis_data(fiscal_year, show_monthly=0, show_quarterly=0):
 			"month_keys": [mm["key"] for mm in q_months]
 		})
 
-	num_months = len(months_info) if months_info else 12
+	# Helper to get monthly target from Target Ledger Map
+	def get_monthly_target(particular, bu_name, month_key):
+		tm = target_map.get((particular, bu_name))
+		if not tm:
+			return 0.0
+		# Extract month code (e.g. apr_2025 -> Apr)
+		month_code = month_key.split("_")[0].capitalize()
+		return flt(tm.get("monthly_targets", {}).get(month_code, 0.0))
 
 	# ── Response building ──
 	if not need_temporal:
@@ -299,7 +323,8 @@ def get_mis_data(fiscal_year, show_monthly=0, show_quarterly=0):
 					act, plan = calc_val["actual"], calc_val["planned"]
 				else:
 					act = get_particular_actual(particular, bu.name)
-					plan = flt(target_map.get((particular, bu.name), {}).get("target_amount", 0))
+					tm = target_map.get((particular, bu.name))
+					plan = flt(tm.get("yearly_target", 0)) if tm else 0.0
 
 				bu_data[bu.name] = make_apv(act, plan)
 				g_act += act
@@ -330,23 +355,24 @@ def get_mis_data(fiscal_year, show_monthly=0, show_quarterly=0):
 				for pk in all_keys:
 					bu_row[pk] = evaluate_calculated_particular(particular, bu_store, pk)
 			else:
-				annual_target = flt(target_map.get((particular, bu.name), {}).get("target_amount", 0))
-				monthly_target = flt(annual_target / num_months, 2) if num_months else 0
+				tm = target_map.get((particular, bu.name))
+				yearly_target = flt(tm.get("yearly_target", 0)) if tm else 0.0
 
-				# Monthly
+				# Monthly planned & actuals
 				for mi in months_info:
 					act = get_particular_actual(particular, bu.name, mi["key"])
-					bu_row[mi["key"]] = make_apv(act, monthly_target)
+					m_plan = get_monthly_target(particular, bu.name, mi["key"])
+					bu_row[mi["key"]] = make_apv(act, m_plan)
 
-				# Quarterly
+				# Quarterly planned & actuals
 				for q in quarters:
 					q_act = sum(bu_row[mk]["actual"] for mk in q["month_keys"] if mk in bu_row)
-					q_plan = flt(monthly_target * len(q["month_keys"]), 2)
+					q_plan = sum(get_monthly_target(particular, bu.name, mk) for mk in q["month_keys"])
 					bu_row[q["key"]] = make_apv(q_act, q_plan)
 
-				# FY
+				# FY planned & actuals
 				fy_act = sum(bu_row[mi["key"]]["actual"] for mi in months_info if mi["key"] in bu_row)
-				bu_row["FY"] = make_apv(fy_act, annual_target)
+				bu_row["FY"] = make_apv(fy_act, yearly_target)
 
 			particular_bu_data[bu.name] = bu_row
 

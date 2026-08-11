@@ -9,8 +9,10 @@
   "column_break_hhmt",
   "target",
   "column_break_puhr",
-  "amount",
+  "fiscal_year",
   "section_break_dczg",
+  "targets",
+  "column_break_kqqe",
   "accounts"
  ],
  "fields": [
@@ -47,16 +49,6 @@
    "fieldtype": "Column Break"
   },
   {
-   "bold": 1,
-   "fieldname": "amount",
-   "fieldtype": "Currency",
-   "in_preview": 1,
-   "label": "Target Amount",
-   "non_negative": 1,
-   "options": "INR",
-   "reqd": 1
-  },
-  {
    "fieldname": "section_break_dczg",
    "fieldtype": "Section Break"
   },
@@ -65,12 +57,33 @@
    "fieldtype": "Table",
    "label": "Accounts",
    "options": "Target Account"
+  },
+  {
+   "fieldname": "fiscal_year",
+   "fieldtype": "Link",
+   "in_filter": 1,
+   "in_list_view": 1,
+   "in_preview": 1,
+   "in_standard_filter": 1,
+   "label": "Fiscal Year",
+   "options": "Fiscal Year",
+   "reqd": 1
+  },
+  {
+   "fieldname": "targets",
+   "fieldtype": "Table",
+   "label": "Targets",
+   "options": "Targets"
+  },
+  {
+   "fieldname": "column_break_kqqe",
+   "fieldtype": "Column Break"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-11 14:32:50.394545",
+ "modified": "2026-08-11 17:23:41.504310",
  "modified_by": "Administrator",
  "module": "MIS",
  "name": "Target Ledger Map",
